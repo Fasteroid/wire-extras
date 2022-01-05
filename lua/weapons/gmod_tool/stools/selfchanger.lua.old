@@ -1,0 +1,295 @@
+-- stealing this hack method from a friend, I want serverside values to show on the client
+
+if SERVER then
+
+	local function PrintTableC(t)
+		local str = table.ToString( t, nil, true )
+		net.Start("selfchangerPrint")
+			net.WriteString(str)
+		net.Send(self:GetOwner())
+	end
+
+	local function printC(v)
+		local str = tostring(v)
+		net.Start("selfchangerPrint")
+			net.WriteString(str)
+		net.Send(self:GetOwner())
+	end
+
+end
+
+TOOL.Category   = "GUI Panels"
+TOOL.Name       = "Self Changer"
+TOOL.Command    = nil
+TOOL.ConfigName = ""
+TOOL.HintAntispam = true
+
+TOOL.ClientConVar =
+{
+	["widvariable"] = "",
+	["widvalue"]    = "",
+	["widvaluenum"] = "0"
+}
+
+TOOL.bannedClasses = {
+	"gmod_wire_expression2",
+	"starfall_processor",
+	"player"
+}
+
+if ( CLIENT ) then
+	language.Add( "tool.selfchanger.name", "Self Changer" )
+	language.Add( "tool.selfchanger.desc", "Print or modify properties of entities" )
+	language.Add( "tool.selfchanger.widvariable", "Variable:")
+	language.Add( "tool.selfchanger.widvariable_con", "Write variable entity hash name here")
+	language.Add( "tool.selfchanger.widvalue", "Value:")
+	language.Add( "tool.selfchanger.widvalue_con", "Write desired variable value here")
+	language.Add( "tool.selfchanger.widvaluenum", "Force value number conversion" )
+	language.Add( "tool.selfchanger.widvaluenum_con", "Check this for force converting the value to a number" )
+
+	language.Add( "tool.selfchanger.left",   "Set new value" )
+	language.Add( "tool.selfchanger.right",  "Print value to console" )
+	language.Add( "tool.selfchanger.reload", "Print entire entity table to console" )
+	TOOL.Information = { 
+		{ name = "left" },
+		{ name = "right" },
+		{ name = "reload" } 
+	}
+
+	function setEntitySetting()
+		local ent = net.ReadEntity()
+		local varpath = net.ReadString()
+		local val = net.ReadString()
+		local bnv = net.ReadBool()
+
+		local paths = {}
+		for k , v in varpath:gmatch("%b[]") do
+			paths[#paths+1] = k:gsub("[%[%]%\']+", "")
+		end
+
+		local var = paths[#paths]
+		local set = ent
+
+		for i=1, #paths-1 do -- traverse down to the correct value
+			local location = paths[i]
+			if not set[location] then location = tonumber(location) or "" end
+			set = set[location]
+		end
+		
+		if(bnv) then
+			set[var] = (tonumber(val) or 0)
+		else
+			set[var] = (tostring(val) or "")
+		end
+	end
+
+	net.Receive("selfchangerSetEntitySetting", setEntitySetting)
+	net.Receive("selfchangerPrint", function()
+		print( net.ReadString() )
+	end)
+end
+
+if( SERVER ) then
+	util.AddNetworkString("selfchangerSetEntitySetting")
+	util.AddNetworkString("selfchangerGetEntitySetting")
+	util.AddNetworkString("selfchangerPrint")
+
+	function getEntitySetting()
+		local ent = net.ReadEntity()
+		local varpath = net.ReadString()
+
+		local paths = {}
+		for k , v in varpath:gmatch("%b[]") do
+			paths[#paths+1] = k:gsub("[%[%]%\']+", "")
+		end
+
+		local var = paths[#paths]
+		local set = ent
+
+		for i=1, #paths-1 do -- traverse down to the correct value
+			local location = paths[i]
+			if not set[location] then location = tonumber(location) or "" end
+			set = set[location]
+		end
+		
+		if(bnv) then
+			set[var] = (tonumber(val) or 0)
+		else
+			set[var] = (tostring(val) or "")
+		end
+	end
+
+	net.Receive("selfchangerSetEntitySetting", getEntitySetting)	
+	
+end
+
+function TOOL:isBanned(entity)
+	if not entity then return false end
+	local entClass = entity:GetClass()
+	for k, class in ipairs(self.bannedClasses) do
+		if entClass == class then
+			if SERVER then
+				WireLib.AddNotify(self:GetOwner(), "Entity class '"..class.."' is set to read-only.", NOTIFY_ERROR, 2)
+			end
+			return true
+		end
+	end
+end
+
+function TOOL:printTableClosed(t)
+	local str = ""
+	for k, v in pairs(t) do
+		local typ = type(v)
+		if typ == "table" then
+			str = str .. k .. "\t=\t{...}\n" 
+		elseif typ ~= "function" then
+			str = str .. k .. "\t=\t"..tostring(v).."\n"
+		end
+	end
+	net.Start("selfchangerPrint")
+		net.WriteString(str)
+	net.Send(self:GetOwner())
+end
+
+function TOOL:sendSetVal(ent, varpath, val)
+
+	if varpath == "" then
+		if SERVER then
+			WireLib.AddNotify(self:GetOwner(), "Pick a variable from within the spawnmenu.", NOTIFY_HINT, 5)
+		end
+		return false
+	end
+
+	local bnv = (self:GetClientNumber("widvaluenum") ~= 0)
+	local paths = {}
+	for k , v in varpath:gmatch("%b[]") do
+		paths[#paths+1] = k:gsub("[%[%]%\']+", "")
+	end
+	local var = paths[#paths]
+
+	local set = ent
+	for i=1, #paths-1 do -- traverse down to the correct value
+		local location = paths[i]
+		if not set[location] then location = tonumber(location) or "" end
+		set = set[location]
+		if not set then 
+			if SERVER then
+				WireLib.AddNotify(self:GetOwner(), "Type of "..varpath.." is nil for this entity (nil at "..location..")", NOTIFY_ERROR, 5)
+			end
+			return false
+		end
+	end
+
+	if type(set[var]) == "table" then
+		if SERVER then
+			WireLib.AddNotify(self:GetOwner(), "Cannot set the value of "..varpath.." (a table value).  You may only set non-table and non-function values.", NOTIFY_ERROR, 5)
+		end
+		return false
+	end
+
+	if type(set[var]) == "function" then
+		if SERVER then
+			WireLib.AddNotify(self:GetOwner(), "Cannot set the value of "..varpath.." (a function value).  You may only set non-table and non-function values.", NOTIFY_ERROR, 5)
+		end
+		return false
+	end
+
+	if(bnv) then
+		set[var] = (tonumber(val) or 0)
+	else
+		set[var] = (tostring(val) or "")
+	end
+
+	net.Start("selfchangerSetEntitySetting")
+		net.WriteEntity(ent)
+		net.WriteString(var)
+		net.WriteString(val)
+		net.WriteBool(bnv)
+	net.Broadcast()
+	return true
+
+end
+
+function TOOL:LeftClick( trace )
+
+	if self:isBanned(trace.Entity) then return false end
+	if CLIENT then return true end
+
+	local widValue    = self:GetClientInfo("widvalue")
+	local widVariable = self:GetClientInfo("widvariable")
+
+	--if (trace.Entity:IsValid() && trace.Entity.guiPanelVersion && trace.Entity.pl == ply) then
+	--trace.Entity[widVariable] = widValue
+	return self:sendSetVal(trace.Entity, widVariable, widValue)
+
+end
+
+function TOOL:RightClick( trace )
+
+	local varpath = self:GetClientInfo("widvariable")
+
+	print( varpath, SERVER )
+
+	if varpath == "" then
+		if SERVER then
+			WireLib.AddNotify(self:GetOwner(), "Pick a variable from within the spawnmenu.", NOTIFY_HINT, 5)
+		end
+		return false
+	end
+
+	local bnv = (self:GetClientNumber("widvaluenum") ~= 0)
+
+	local paths = {}
+	for k , v in varpath:gmatch("%b[]") do
+		paths[#paths+1] = k:gsub("[%[%]%\']+", "")
+	end
+
+	local var = paths[#paths]
+
+	local set = trace.Entity
+
+	for i=1, #paths-1 do -- traverse down to the correct value
+		local location = paths[i]
+		if not set[location] then location = tonumber(location) or "" end
+		set = set[location]
+		if not set then 
+			if SERVER then
+				WireLib.AddNotify(self:GetOwner(), "Type of "..varpath.." is nil for this entity (nil at "..location..")", NOTIFY_HINT, 5)
+			end
+			return true
+		end
+	end
+
+	local typ = type(set[var])
+
+	if SERVER then
+		if typ == "table" then
+			PrintTableC(set[var])
+		else
+			printC(set[var])
+		end
+		WireLib.AddNotify(self:GetOwner(), "Type of "..varpath.." is "..typ.." for this entity, check console for details...", NOTIFY_HINT, 5)
+	end
+
+	return true
+
+end
+
+function TOOL:Reload( trace )
+	if SERVER then
+		self:printTableClosed(trace.Entity:GetTable())
+		WireLib.AddNotify(self:GetOwner(), "Printed entity table to console.", NOTIFY_HINT, 5)
+	end
+	return true
+end
+
+function TOOL:Think()
+end
+
+function TOOL.BuildCPanel(cPanel)
+	cPanel:SetName( "#tool.selfchanger.name" )
+	cPanel:Help   ( "#tool.selfchanger.desc" )
+	cPanel:TextEntry( "#tool.selfchanger.widvariable", "selfchanger_widvariable" ):SetTooltip( "#tool.selfchanger.widvariable_con" )
+	cPanel:TextEntry( "#tool.selfchanger.widvalue"   , "selfchanger_widvalue"    ):SetTooltip( "#tool.selfchanger.widvalue_con"    )
+	cPanel:CheckBox ( "#tool.selfchanger.widvaluenum", "selfchanger_widvaluenum" ):SetTooltip( "#tool.selfchanger.widvaluenum_con" )
+end

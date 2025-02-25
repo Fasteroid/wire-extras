@@ -10,8 +10,8 @@ SELFCHANGER.path    = { }
 SELFCHANGER.maxnest = 1
 
 local BannedClasses = {
-	--["gmod_wire_expression2"] = true,
-	--["starfall_processor"] = true,
+	-- ["gmod_wire_expression2"] = false,
+	["starfall_processor"] = true,
 }
 
 TOOL.ClientConVar = {
@@ -23,6 +23,12 @@ TOOL.ClientConVar = {
 
 local function strJustify(str,len)
 	return str .. string.rep(' ', math.max( 0, len - #str ) )
+end
+
+local function throwDisabled()
+	if SERVER then return false end
+	SELFCHANGER.SoundHint("Function disabled (for now)", NOTIFY_ERROR, 3, "buttons/button10.wav")
+	if true then return false end
 end
 
 local function checkBannedClasses( ent, sender )
@@ -88,9 +94,9 @@ local function navigateTable(tbl, paths, root, sender)
 
 		path = paths[n]
 
-		local str = tostring(path) -- if not 1, try "1"
-		if tbl[str]~=nil then
-			path = str
+		local number = tonumber(path) -- if not 1, try "1"
+		if tbl[number]~=nil then
+			path = number
 		end
 
 		if tbl[path]==nil then return tbl, reads, path, true end
@@ -138,15 +144,15 @@ if CLIENT then
 	language.Add( "tool.selfchanger.name"  , "Self Changer 2" )
 	language.Add( "tool.selfchanger.desc"  , "Print or modify properties of entities" )
 
-	--language.Add( "tool.selfchanger.left"  , "Write/Paste to specified location" )
-	--language.Add( "tool.selfchanger.right" , "Read/Copy from specified location" )
+	language.Add( "tool.selfchanger.left"  , "Write/Paste to specified location" )
+	language.Add( "tool.selfchanger.right" , "Read/Copy from specified location" )
 	language.Add( "tool.selfchanger.reload", "Print entire entity table to console" )
 	language.Add( "tool.selfchanger.reload_use", "Print value at location to console" )
 
 	TOOL.Information = { 
 		{ name = "reload" },
-		--{ name = "right" },
-		--{ name = "left" },
+		{ name = "right" },
+		{ name = "left" },
 		{ name = "reload_use", icon2 = "gui/e.png" },
 	}
 
@@ -216,9 +222,10 @@ if CLIENT then
 				pathEntry.OnChange = pathValidate
 			pathEntry.parseIcon = parseIcon
 		panel:Help("Separate table indicies with periods (.) and escape them with backslashes (\\) if needed.  Backslashes can also be escaped if needed.\n"):SetColor(Color(47,149,241))
-		timer.Simple(0, function() pathValidate(pathEntry) end) -- validate on the next frame since calling this immediately doesn't work for some reason
+		
+		SELFCHANGER.UpdatePath = function() pathValidate(pathEntry) end
 
-		--[[
+		----[[
 		local label2 = vgui.Create("DLabel", top)
 			label2:SetText("Variable Type:")
 			label2:SetColor(Color(0,0,0))
@@ -266,9 +273,7 @@ if CLIENT then
 			end
 		end
 
-		timer.Simple(0.1, function() pathValidate(pathEntry) end) -- validate on the next frame since calling this immediately doesn't work for some reason
-
-		]]--
+		--]]--
 		local recursionSlider = panel:NumSlider("Nested Table Limit:", "selfchanger_max_nested_prints", 1, 5, 0)
 		recursionSlider:Dock(FILL)
 		recursionSlider.OnValueChanged = function(pan,n) -- snappy slider; snap to nearest integer to give the UI a "crisp" feel
@@ -278,7 +283,7 @@ if CLIENT then
 			end
 		end
 		panel:Help("The maximum depth to explore nested tables to.  Should save you from self-referential tables if you accidentally print one."):SetColor(Color(47,149,241))
-		--[[
+		----[[
 		local function SendClientValue(value)
 			net.Start("selfchanger", true)
 				net.WriteString("StoreClientValue")
@@ -331,7 +336,7 @@ if CLIENT then
 			end
 
 		end
-		]]--
+		--]]--
 		
 	end
 
@@ -399,9 +404,12 @@ end
 
 ---------------------------------- Left Click ----------------------------------
 
---[[
+----[[
 if SERVER then
 	function SELFCHANGER.ServerCommands.LeftClick( sender )
+
+		if true then return throwDisabled() end
+
 		local entity = net.ReadEntity()
 		local sv_path = net.ReadTable()
 		local tbl = entity:GetTable()
@@ -427,6 +435,11 @@ end
 function TOOL:LeftClick( trace )
 
 	if not IsFirstTimePredicted() then return true end
+	if true then return throwDisabled() end
+
+	if CLIENT then
+		SELFCHANGER.UpdatePath()
+	end
 
 	local entity = trace.Entity
 	if checkBannedClasses(entity) then
@@ -442,12 +455,12 @@ function TOOL:LeftClick( trace )
 
 		local tbl = entity:GetTable()
 
-		if( #sv_path == 0 ) then -- oh god
-			SELFCHANGER.SoundHint( sender, "Can't change root entity table.", NOTIFY_ERROR, 3, "buttons/button10.wav" )
+		if( #SELFCHANGER.path == 0 ) then -- oh god
+			SELFCHANGER.SoundHint( "Can't change root entity table.", NOTIFY_ERROR, 3, "buttons/button10.wav" )
 			return
 		end
 
-		local final, reads, path, failed = navigateTable(tbl,SELFCHANGER.path,root)		
+		local final, reads, path, failed = navigateTable(tbl,SELFCHANGER.path,root)
 
 		if not failed then
 			final[path] = SELFCHANGER.value
@@ -526,9 +539,7 @@ if SERVER then
 
 	function SELFCHANGER.ServerCommands.RightClick(sender)
 
-		if true then
-			return false
-		end
+		if true then return throwDisabled() end
 
 		local entity = net.ReadEntity()
 
@@ -562,11 +573,8 @@ end
 
 function TOOL:RightClick( trace )
 
-	if true then
-		return false
-	end
-
 	if not IsFirstTimePredicted() then return true end
+	if true then return throwDisabled() end
 
 	local entity = trace.Entity
 	if checkBannedClasses(entity) then
@@ -614,7 +622,7 @@ function TOOL:RightClick( trace )
 	end
 
 end
-]]--
+--]]--
 
 ---------------------------------- Reload ----------------------------------
 
